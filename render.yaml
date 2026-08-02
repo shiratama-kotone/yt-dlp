@@ -1,0 +1,20 @@
+# Render Blueprint（任意）。
+# ダッシュボードから手動で "New Web Service" → "Docker" を選んでデプロイしてもOKです。
+# こちらを使う場合は Render のダッシュボードで
+# "New" → "Blueprint" からこのリポジトリを指定してください。
+
+services:
+  - type: web
+    name: ytdlp-personal-server
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: API_PASSWORD
+        sync: false        # Render のダッシュボードで値を設定してください（必須）
+      - key: JOB_TTL_MS
+        value: "3600000"   # ジョブ（一時ファイル）の保持時間 = 1時間
+      - key: NODE_ENV
+        value: "production"
