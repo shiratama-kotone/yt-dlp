@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp は pip で最新版を入れる（バイナリより更新が容易なため）
-RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
+# yt-dlp-ejs: YouTubeのSABR配信化により必要になった署名/nチャレンジ解決用の追加コンポーネント
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp yt-dlp-ejs
 
 WORKDIR /app
 
