@@ -126,7 +126,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { selectedFormatId: null, pollTimer: null };
+const state = { selectedHeight: null, pollTimer: null };
 
 // パスワードは sessionStorage に保存（タブを閉じたら消える）
 $('password').value = sessionStorage.getItem('ytdl_pw') || '';
@@ -170,7 +170,7 @@ $('fetchBtn').addEventListener('click', async () => {
 
 function renderResult(data) {
   $('resultCard').style.display = 'block';
-  state.selectedFormatId = null;
+  state.selectedHeight = null;
   $('downloadBtn').disabled = true;
 
   const info = $('videoInfo');
@@ -186,7 +186,7 @@ function renderResult(data) {
   tbody.innerHTML = '';
   data.formats.filter(f => f.hasVideo).forEach((f) => {
     const tr = document.createElement('tr');
-    tr.dataset.formatId = f.formatId;
+    tr.dataset.height = f.height || '';
     tr.innerHTML = `
       <td><input type="radio" name="fmt" ${false}></td>
       <td>${escapeHtml(f.resolution)}${f.needsMerge ? '<span class="badge merge">要結合</span>' : ''}</td>
@@ -194,24 +194,25 @@ function renderResult(data) {
       <td>${f.filesizeMB ? f.filesizeMB + ' MB' : '不明'}</td>
       <td class="badge">${escapeHtml(f.note || '')}</td>
     `;
-    tr.addEventListener('click', () => selectFormat(f.formatId));
+    tr.addEventListener('click', () => selectFormat(f.height));
     tbody.appendChild(tr);
   });
 }
 
-function selectFormat(formatId) {
-  state.selectedFormatId = formatId;
+function selectFormat(height) {
+  state.selectedHeight = height || null;
   $('downloadBtn').disabled = false;
   document.querySelectorAll('#formatList tr').forEach((tr) => {
-    tr.classList.toggle('selected', tr.dataset.formatId === formatId);
+    const trHeight = tr.dataset.height ? Number(tr.dataset.height) : null;
+    const isSelected = trHeight === (height || null);
+    tr.classList.toggle('selected', isSelected);
     const radio = tr.querySelector('input[type=radio]');
-    if (radio) radio.checked = tr.dataset.formatId === formatId;
+    if (radio) radio.checked = isSelected;
   });
 }
 
 $('downloadBtn').addEventListener('click', async () => {
   const url = $('url').value.trim();
-  if (!state.selectedFormatId) return;
 
   $('downloadBtn').disabled = true;
   setStatus('ジョブを開始しています...');
@@ -220,7 +221,7 @@ $('downloadBtn').addEventListener('click', async () => {
     const res = await fetch('/api/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ url, formatId: state.selectedFormatId }),
+      body: JSON.stringify({ url, height: state.selectedHeight }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '開始に失敗しました');
