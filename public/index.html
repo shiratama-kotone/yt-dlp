@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YouTube ダウンローダー（個人用）</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --border: #2a2f3a;
+    --text: #e8eaed;
+    --muted: #9aa3b2;
+    --accent: #ff4d4f;
+    --accent-hover: #ff6b6d;
+    --ok: #3ddc84;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; font-size: 0.9rem; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=password] {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0d0f13;
+    color: var(--text);
+    font-size: 0.95rem;
+    margin-bottom: 12px;
+  }
+  input:focus { outline: 2px solid var(--accent); }
+
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { background: #4a4f58; cursor: not-allowed; }
+  button.secondary { background: #2a2f3a; }
+  button.secondary:hover { background: #3a4150; }
+
+  .video-info { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+  .video-info img { width: 120px; border-radius: 8px; flex-shrink: 0; }
+  .video-info .title { font-weight: 600; margin-bottom: 4px; line-height: 1.4; }
+  .video-info .meta { color: var(--muted); font-size: 0.85rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+  tr.selected { background: rgba(255,77,79,0.12); }
+  tr:hover { background: rgba(255,255,255,0.04); cursor: pointer; }
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #2a2f3a;
+    color: var(--muted);
+    margin-left: 6px;
+  }
+  .badge.merge { background: rgba(255,77,79,0.15); color: var(--accent); }
+
+  #status { font-size: 0.9rem; color: var(--muted); margin-top: 10px; white-space: pre-wrap; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--accent); }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  footer { color: var(--muted); font-size: 0.75rem; text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎬 YouTube ダウンローダー</h1>
+  <p class="sub">個人用サーバー / パスワード保護済み</p>
+
+  <div class="card">
+    <label for="password">パスワード</label>
+    <input type="password" id="password" placeholder="サーバーに設定したパスワード" autocomplete="off">
+
+    <label for="url">YouTube URL</label>
+    <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=...">
+
+    <button id="fetchBtn">画質一覧を取得</button>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="video-info" id="videoInfo"></div>
+    <table>
+      <thead>
+        <tr><th></th><th>画質</th><th>形式</th><th>サイズ目安</th><th></th></tr>
+      </thead>
+      <tbody id="formatList"></tbody>
+    </table>
+    <div class="row" style="margin-top:14px;">
+      <button id="downloadBtn" disabled>選択した画質でダウンロード</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <footer>個人利用限定・著作権を尊重してご利用ください</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { selectedFormatId: null, pollTimer: null };
+
+// パスワードは sessionStorage に保存（タブを閉じたら消える）
+$('password').value = sessionStorage.getItem('ytdl_pw') || '';
+$('password').addEventListener('change', () => {
+  sessionStorage.setItem('ytdl_pw', $('password').value);
+});
+
+function authHeaders() {
+  return { 'x-api-password': $('password').value };
+}
+
+function setStatus(msg, cls) {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+$('fetchBtn').addEventListener('click', async () => {
+  const url = $('url').value.trim();
+  if (!url) { alert('URLを入力してください'); return; }
+
+  $('fetchBtn').disabled = true;
+  $('fetchBtn').textContent = '取得中...';
+  setStatus('');
+
+  try {
+    const res = await fetch('/api/formats?url=' + encodeURIComponent(url), {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '取得に失敗しました');
+
+    renderResult(data);
+  } catch (err) {
+    alert('エラー: ' + err.message);
+  } finally {
+    $('fetchBtn').disabled = false;
+    $('fetchBtn').textContent = '画質一覧を取得';
+  }
+});
+
+function renderResult(data) {
+  $('resultCard').style.display = 'block';
+  state.selectedFormatId = null;
+  $('downloadBtn').disabled = true;
+
+  const info = $('videoInfo');
+  info.innerHTML = `
+    ${data.thumbnail ? `<img src="${data.thumbnail}" alt="thumbnail">` : ''}
+    <div>
+      <div class="title">${escapeHtml(data.title || '(タイトル不明)')}</div>
+      <div class="meta">${escapeHtml(data.uploader || '')} ${data.duration ? '・' + formatDuration(data.duration) : ''}</div>
+    </div>
+  `;
+
+  const tbody = $('formatList');
+  tbody.innerHTML = '';
+  data.formats.filter(f => f.hasVideo).forEach((f) => {
+    const tr = document.createElement('tr');
+    tr.dataset.formatId = f.formatId;
+    tr.innerHTML = `
+      <td><input type="radio" name="fmt" ${false}></td>
+      <td>${escapeHtml(f.resolution)}${f.needsMerge ? '<span class="badge merge">要結合</span>' : ''}</td>
+      <td>${escapeHtml(f.ext)}</td>
+      <td>${f.filesizeMB ? f.filesizeMB + ' MB' : '不明'}</td>
+      <td class="badge">${escapeHtml(f.note || '')}</td>
+    `;
+    tr.addEventListener('click', () => selectFormat(f.formatId));
+    tbody.appendChild(tr);
+  });
+}
+
+function selectFormat(formatId) {
+  state.selectedFormatId = formatId;
+  $('downloadBtn').disabled = false;
+  document.querySelectorAll('#formatList tr').forEach((tr) => {
+    tr.classList.toggle('selected', tr.dataset.formatId === formatId);
+    const radio = tr.querySelector('input[type=radio]');
+    if (radio) radio.checked = tr.dataset.formatId === formatId;
+  });
+}
+
+$('downloadBtn').addEventListener('click', async () => {
+  const url = $('url').value.trim();
+  if (!state.selectedFormatId) return;
+
+  $('downloadBtn').disabled = true;
+  setStatus('ジョブを開始しています...');
+
+  try {
+    const res = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ url, formatId: state.selectedFormatId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '開始に失敗しました');
+
+    pollJob(data.jobId);
+  } catch (err) {
+    setStatus('エラー: ' + err.message, 'err');
+    $('downloadBtn').disabled = false;
+  }
+});
+
+function pollJob(jobId) {
+  clearInterval(state.pollTimer);
+  let dots = 0;
+  state.pollTimer = setInterval(async () => {
+    dots = (dots + 1) % 4;
+    try {
+      const res = await fetch(`/api/download/${jobId}/status`, { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'ステータス取得エラー');
+
+      if (data.status === 'pending' || data.status === 'processing') {
+        setStatus('処理中（サーバー側でダウンロード・結合しています）' + '.'.repeat(dots));
+      } else if (data.status === 'done') {
+        clearInterval(state.pollTimer);
+        setStatus('完成しました。ダウンロードを開始します...', 'ok');
+        const fileUrl = `/api/download/${jobId}/file?password=${encodeURIComponent($('password').value)}`;
+        const a = document.createElement('a');
+        a.href = fileUrl;
+        a.download = data.fileName || 'video.mp4';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        $('downloadBtn').disabled = false;
+      } else if (data.status === 'error') {
+        clearInterval(state.pollTimer);
+        setStatus('失敗しました: ' + data.error, 'err');
+        $('downloadBtn').disabled = false;
+      }
+    } catch (err) {
+      clearInterval(state.pollTimer);
+      setStatus('エラー: ' + err.message, 'err');
+      $('downloadBtn').disabled = false;
+    }
+  }, 2000);
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function formatDuration(sec) {
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+    : `${m}:${String(s).padStart(2,'0')}`;
+}
+</script>
+</body>
+</html>
