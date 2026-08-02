@@ -34,6 +34,30 @@ if (!API_PASSWORD) {
 }
 
 // ---------------------------------------------------------------------------
+// YouTube の "bot確認" 対策用 cookie（Netscape形式 cookies.txt）
+// - 起動時: 環境変数 YTDLP_COOKIES_B64（cookies.txtをbase64にしたもの）があれば読み込む
+// - 実行中: POST /api/cookies に生のcookies.txtを送ると再デプロイなしで更新できる
+// ---------------------------------------------------------------------------
+const COOKIES_PATH = path.join(os.tmpdir(), 'ytdlp-cookies.txt');
+
+function loadCookiesFromEnv() {
+  if (process.env.YTDLP_COOKIES_B64) {
+    try {
+      const decoded = Buffer.from(process.env.YTDLP_COOKIES_B64, 'base64').toString('utf8');
+      fs.writeFileSync(COOKIES_PATH, decoded, 'utf8');
+      console.log('[INFO] YTDLP_COOKIES_B64 から cookies.txt を読み込みました');
+    } catch (err) {
+      console.error('[WARN] cookie の読み込みに失敗しました', err);
+    }
+  }
+}
+loadCookiesFromEnv();
+
+function cookieArgs() {
+  return fs.existsSync(COOKIES_PATH) ? ['--cookies', COOKIES_PATH] : [];
+}
+
+// ---------------------------------------------------------------------------
 // 認証ミドルウェア
 // ヘッダー "x-api-password" か クエリ/ボディの "password" のどちらかでチェックする
 // ---------------------------------------------------------------------------
@@ -154,6 +178,7 @@ app.get('/api/formats', requireAuth, async (req, res) => {
 
   try {
     const { stdout } = await runCommand('yt-dlp', [
+      ...cookieArgs(),
       '-j',
       '--no-warnings',
       '--no-playlist',
@@ -213,6 +238,23 @@ app.get('/api/formats', requireAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/cookies  body: cookies.txt の中身をそのまま（Content-Type: text/plain）
+// YouTubeの "bot確認" が出た時、ブラウザからエクスポートしたcookieを
+// 再デプロイなしで反映するためのエンドポイント（サーバー再起動で消える）
+// ---------------------------------------------------------------------------
+app.post('/api/cookies', requireAuth, express.text({ limit: '2mb', type: '*/*' }), (req, res) => {
+  try {
+    if (!req.body || typeof req.body !== 'string' || !req.body.trim()) {
+      return res.status(400).json({ error: 'cookies.txt の中身が空です' });
+    }
+    fs.writeFileSync(COOKIES_PATH, req.body, 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/download  body: { url, formatId, password }
 // ダウンロードジョブを作成し、即座に jobId を返す（非同期処理）
 // ---------------------------------------------------------------------------
@@ -247,6 +289,7 @@ async function processDownloadJob(jobId, url, formatId) {
   try {
     // 選択されたフォーマットが映像のみかどうかを確認する
     const { stdout } = await runCommand('yt-dlp', [
+      ...cookieArgs(),
       '-j', '--no-warnings', '--no-playlist', url,
     ], { timeoutMs: 60 * 1000 });
     const info = JSON.parse(stdout);
@@ -261,6 +304,7 @@ async function processDownloadJob(jobId, url, formatId) {
     const outputTemplate = path.join(tempDir, '%(id)s.%(ext)s');
 
     await runCommand('yt-dlp', [
+      ...cookieArgs(),
       '-f', formatArg,
       '--merge-output-format', 'mp4',   // 映像+音声が分かれている場合、ffmpegで結合してmp4化
       '--remux-video', 'mp4',           // 既に結合済みでもコンテナをmp4に統一（再エンコードなし）
