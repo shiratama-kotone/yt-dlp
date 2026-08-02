@@ -142,14 +142,6 @@ function runCommand(cmd, args, { timeoutMs = 15 * 60 * 1000 } = {}) {
   });
 }
 
-function sanitizeFileName(name) {
-  return name
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
-
 function isValidUrl(str) {
   try {
     const u = new URL(str);
@@ -203,6 +195,7 @@ app.get('/api/formats', requireAuth, async (req, res) => {
           formatId: f.format_id,
           ext: f.ext,
           resolution: hasVideo ? (f.height ? `${f.height}p${f.fps && f.fps > 30 ? f.fps : ''}` : (f.format_note || '不明')) : '音声のみ',
+          height: hasVideo ? (f.height || null) : null,
           hasVideo: !!hasVideo,
           hasAudio: !!hasAudio,
           needsMerge: !!hasVideo && !hasAudio,
@@ -255,30 +248,35 @@ app.post('/api/cookies', requireAuth, express.text({ limit: '2mb', type: '*/*' }
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/download  body: { url, formatId, password }
+// POST /api/download  body: { url, height, password }
 // ダウンロードジョブを作成し、即座に jobId を返す（非同期処理）
+//
+// 注: 特定の format_id (itag) を直接指定すると、一覧取得時と実際のダウンロード時で
+// YouTube側が返すitagにズレが生じ "Requested format is not available" になることが
+// あるため、「指定した高さ(height)以下でベストなものを自動選択」という
+// セレクタ方式にして堅牢性を高めている。
 // ---------------------------------------------------------------------------
 app.post('/api/download', requireAuth, (req, res) => {
-  const { url, formatId } = req.body || {};
+  const { url, height } = req.body || {};
   if (!url || !isValidUrl(url)) {
     return res.status(400).json({ error: 'url が不正です' });
   }
-  if (!formatId) {
-    return res.status(400).json({ error: 'formatId が必要です' });
+  if (height !== undefined && height !== null && (!Number.isFinite(Number(height)) || Number(height) <= 0)) {
+    return res.status(400).json({ error: 'height が不正です' });
   }
 
   const jobId = crypto.randomUUID();
   jobs.set(jobId, { status: 'pending', createdAt: Date.now() });
 
   // 非同期でバックグラウンド処理を開始（レスポンスは待たせない）
-  processDownloadJob(jobId, url, formatId).catch((err) => {
+  processDownloadJob(jobId, url, height ? Number(height) : null).catch((err) => {
     console.error(`[job ${jobId}] unexpected error`, err);
   });
 
   res.json({ jobId });
 });
 
-async function processDownloadJob(jobId, url, formatId) {
+async function processDownloadJob(jobId, url, height) {
   const job = jobs.get(jobId);
   if (!job) return;
   job.status = 'processing';
@@ -287,21 +285,12 @@ async function processDownloadJob(jobId, url, formatId) {
   job.tempDir = tempDir;
 
   try {
-    // 選択されたフォーマットが映像のみかどうかを確認する
-    const { stdout } = await runCommand('yt-dlp', [
-      ...cookieArgs(),
-      '-j', '--no-warnings', '--no-playlist', url,
-    ], { timeoutMs: 60 * 1000 });
-    const info = JSON.parse(stdout);
-    const target = (info.formats || []).find((f) => f.format_id === formatId);
+    // 高さ制約付きのベスト映像+ベスト音声を狙い、ダメなら段階的にフォールバックする
+    const h = height ? `[height<=${height}]` : '';
+    const formatArg = `bestvideo${h}+bestaudio/best${h}/best`;
 
-    let formatArg = formatId;
-    if (target && target.vcodec !== 'none' && (!target.acodec || target.acodec === 'none')) {
-      // 映像のみ → 最良の音声とセットで指定。yt-dlpが内部でffmpegを呼び出して自動結合する
-      formatArg = `${formatId}+bestaudio/best`;
-    }
-
-    const outputTemplate = path.join(tempDir, '%(id)s.%(ext)s');
+    // タイトルはyt-dlpの出力テンプレートに任せ、実際に生成されたファイル名をそのまま使う
+    const outputTemplate = path.join(tempDir, '%(title).100s [%(id)s].%(ext)s');
 
     await runCommand('yt-dlp', [
       ...cookieArgs(),
@@ -320,10 +309,9 @@ async function processDownloadJob(jobId, url, formatId) {
     }
 
     const finalPath = path.join(tempDir, files[0]);
-    const titlePart = sanitizeFileName(info.title || 'video');
 
     job.filePath = finalPath;
-    job.fileName = `${titlePart}.mp4`;
+    job.fileName = files[0];
     job.status = 'done';
   } catch (err) {
     console.error(`[job ${jobId}] failed`, err);
