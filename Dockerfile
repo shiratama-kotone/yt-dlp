@@ -1,7 +1,7 @@
 # 個人用 YouTube ダウンロードサーバー用 Dockerfile
 # Node.js + Python3(yt-dlp) + ffmpeg をまとめて用意する
 
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
 # yt-dlp (Python製) と ffmpeg、証明書類をインストール
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp は pip で最新版を入れる（バイナリより更新が容易なため）
-RUN pip3 install --no-cache-dir -U yt-dlp
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
 
 WORKDIR /app
 
