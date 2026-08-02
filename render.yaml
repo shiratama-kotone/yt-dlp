@@ -14,6 +14,8 @@ services:
     envVars:
       - key: API_PASSWORD
         sync: false        # Render のダッシュボードで値を設定してください（必須）
+      - key: YTDLP_COOKIES_B64
+        sync: false        # 任意。"Sign in to confirm you're not a bot" 対策（README参照）
       - key: JOB_TTL_MS
         value: "3600000"   # ジョブ（一時ファイル）の保持時間 = 1時間
       - key: NODE_ENV
