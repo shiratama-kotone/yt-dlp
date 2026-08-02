@@ -58,6 +58,22 @@ function cookieArgs() {
 }
 
 // ---------------------------------------------------------------------------
+// YouTubeのSABR配信強制・署名/nチャレンジ対策
+// - ベースイメージに元々入っているNode.jsをJSランタイムとしてyt-dlpに使わせる
+// - yt-dlp-ejs（Dockerfileでインストール済み）が古い場合に備え、GitHubから
+//   最新の解決コンポーネントを取得することも許可しておく
+// - 複数のplayer_clientを試させることで、特定クライアントのみSABR強制されて
+//   フォーマットが取れないケースを回避する
+// ---------------------------------------------------------------------------
+function resilienceArgs() {
+  return [
+    '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
+    '--extractor-args', 'youtube:player_client=tv,web,mweb,web_safari',
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // 認証ミドルウェア
 // ヘッダー "x-api-password" か クエリ/ボディの "password" のどちらかでチェックする
 // ---------------------------------------------------------------------------
@@ -171,6 +187,7 @@ app.get('/api/formats', requireAuth, async (req, res) => {
   try {
     const { stdout } = await runCommand('yt-dlp', [
       ...cookieArgs(),
+      ...resilienceArgs(),
       '-j',
       '--no-warnings',
       '--no-playlist',
@@ -294,6 +311,7 @@ async function processDownloadJob(jobId, url, height) {
 
     await runCommand('yt-dlp', [
       ...cookieArgs(),
+      ...resilienceArgs(),
       '-f', formatArg,
       '--merge-output-format', 'mp4',   // 映像+音声が分かれている場合、ffmpegで結合してmp4化
       '--remux-video', 'mp4',           // 既に結合済みでもコンテナをmp4に統一（再エンコードなし）
