@@ -219,7 +219,37 @@ cookies.txt を取り直して、上記A・Bのどちらかで更新してくだ
 
 ---
 
-## 8. トラブルシューティング
+## 8. 「Requested format is not available」対策（YouTubeのSABR配信強制）
+
+2025年後半以降、YouTubeは「SABR」という新しい配信方式を段階的に強制するようになり、
+これに対応していないクライアントでは通常のフォーマット一覧が取得できず
+`WARNING: Only images are available for download` → `Requested format is not available`
+というエラーになることがあります。あわせて、YouTubeの署名/n challengeを解くために
+**JavaScriptランタイムでの解決処理**が必要なケースも増えています。
+
+これは yt-dlp と YouTube 側のいたちごっこであり、**サーバー側のコードの不具合ではなく、
+外部要因（YouTube側の仕様変更）による一時的な問題であることが多い**です。このサーバーでは
+以下の対策を入れています。
+
+- `yt-dlp-ejs`（署名/nチャレンジを解くための追加コンポーネント）を同梱
+- ベースイメージに元々含まれる **Node.js を JavaScript ランタイムとして利用**（`--js-runtimes node`）
+- 必要に応じて GitHub から最新の解決コンポーネントを取得（`--remote-components ejs:github`）
+- 複数の player_client（tv/web/mweb/web_safari）を順番に試す（`--extractor-args`）
+- ログイン cookie を使う（6章参照）
+
+**それでも直らない場合**は、Dockerfileの `yt-dlp` と `yt-dlp-ejs` のバージョンが古い
+（Renderのビルドキャッシュが古い）ことが多いです。Renderのダッシュボードで
+**Manual Deploy → Clear build cache & deploy** を実行し、キャッシュなしで
+再ビルドしてみてください（`-U` オプションにより毎回pipで最新版を取得しますが、
+Dockerレイヤーキャッシュが効いていると更新がスキップされることがあります）。
+
+それでも解消しない場合は、その時点のYouTube側の仕様変更にyt-dlp本体がまだ追随できて
+いない可能性があります。数日〜数週間で yt-dlp 側が更新されることが多いので、
+時間を置いて再度お試しください。
+
+---
+
+## 9. トラブルシューティング
 
 - **「画質一覧の取得に失敗しました」** : YouTube 側の仕様変更や年齢制限・地域制限がある
   可能性があります。yt-dlp のバージョンアップで直ることが多いので、Dockerfile の
