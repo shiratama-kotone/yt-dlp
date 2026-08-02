@@ -172,7 +172,48 @@ Render の Web サービスにはリクエストのタイムアウトがあり�
 
 ---
 
-## 7. トラブルシューティング
+## 7. 「Sign in to confirm you're not a bot」対策（重要）
+
+YouTube が bot 確認を要求してくることがあります。この場合、ログイン済みブラウザの
+cookie を yt-dlp に渡す必要があります。
+
+### 手順A: 事前に環境変数へ設定する（デプロイ時）
+
+1. Chrome などに **「Get cookies.txt LOCALLY」** 等の拡張機能を入れる
+2. YouTube にログインした状態で `https://www.youtube.com` を開き、拡張機能で
+   `cookies.txt`（Netscape形式）をエクスポートする
+3. その中身を base64 に変換する（Chromebookのターミナル/Linux環境が使える場合）
+
+   ```bash
+   base64 -w0 cookies.txt
+   ```
+
+   ターミナルが使えない場合は、オンラインの「Base64 encode」ツールに
+   `cookies.txt` の中身を貼り付けて変換してもOKです（内容は自分のログインcookieなので、
+   信頼できるツール以外には貼り付けないよう注意してください）。
+
+4. Render の環境変数 `YTDLP_COOKIES_B64` にその文字列を設定して再デプロイする
+
+### 手順B: 再デプロイなしで反映する（cookieが切れた時の更新用）
+
+`POST /api/cookies` に cookies.txt の中身をそのまま（Content-Type: text/plain）送ると、
+サーバーを再起動せずに反映できます（※サーバーが再起動すると消えるので、恒久的には
+手順Aで環境変数も更新しておくのがおすすめです）。
+
+```bash
+curl -X POST \
+  -H "x-api-password: YOUR_PASSWORD" \
+  -H "Content-Type: text/plain" \
+  --data-binary @cookies.txt \
+  "https://<your-app>.onrender.com/api/cookies"
+```
+
+cookie は数週間〜数ヶ月で失効することがあります。同じエラーが再発した場合は
+cookies.txt を取り直して、上記A・Bのどちらかで更新してください。
+
+---
+
+## 8. トラブルシューティング
 
 - **「画質一覧の取得に失敗しました」** : YouTube 側の仕様変更や年齢制限・地域制限がある
   可能性があります。yt-dlp のバージョンアップで直ることが多いので、Dockerfile の
