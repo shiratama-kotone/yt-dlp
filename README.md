@@ -90,6 +90,7 @@ curl -H "x-api-password: YOUR_PASSWORD" \
       "formatId": "137",
       "ext": "mp4",
       "resolution": "1080p",
+      "height": 1080,
       "hasVideo": true,
       "hasAudio": false,
       "needsMerge": true,
@@ -103,9 +104,14 @@ curl -H "x-api-password: YOUR_PASSWORD" \
 ### 4-3. `POST /api/download`
 ダウンロードジョブを作成する（非同期）。すぐに `jobId` が返る。
 
+`height` には「この高さ以下でベストな画質」を指定する（`/api/formats` のレスポンスにある
+`height` の値を使う。省略・`null` なら無制限＝最高画質）。特定の format_id を直接指定する
+方式だと一覧取得時とダウンロード時でYouTube側のitagがズレて失敗することがあるため、
+このサーバーでは高さ制約による自動選択方式を採用している。
+
 ```bash
 curl -X POST -H "Content-Type: application/json" -H "x-api-password: YOUR_PASSWORD" \
-  -d '{"url":"https://www.youtube.com/watch?v=XXXX","formatId":"137"}' \
+  -d '{"url":"https://www.youtube.com/watch?v=XXXX","height":1080}' \
   https://<your-app>.onrender.com/api/download
 ```
 
