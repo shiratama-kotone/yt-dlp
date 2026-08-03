@@ -50,7 +50,8 @@ Render は通常の Node 環境だと `apt-get` で ffmpeg / yt-dlp を入れら
 1. 「パスワード」欄に `API_PASSWORD` と同じ値を入力
 2. YouTube の URL を貼り付け、「画質一覧を取得」
 3. 一覧から画質を選択（「要結合」バッジがある画質は映像・音声が別々で、
-   サーバー側で自動的に ffmpeg 結合されます）
+   サーバー側で自動的に ffmpeg 結合されます）。一覧の一番下にある
+   「🎵 音声のみ」を選ぶと、映像なしでMP3としてダウンロードできます。
 4. 「選択した画質でダウンロード」を押すと処理が始まり、完了すると自動でダウンロードされます
 
 ---
@@ -109,9 +110,18 @@ curl -H "x-api-password: YOUR_PASSWORD" \
 方式だと一覧取得時とダウンロード時でYouTube側のitagがズレて失敗することがあるため、
 このサーバーでは高さ制約による自動選択方式を採用している。
 
+`audioOnly: true` を指定すると、映像なしでベスト音質からMP3を抽出してダウンロードする
+（この場合 `height` は無視される）。
+
 ```bash
+# 映像（1080p以下でベスト）
 curl -X POST -H "Content-Type: application/json" -H "x-api-password: YOUR_PASSWORD" \
   -d '{"url":"https://www.youtube.com/watch?v=XXXX","height":1080}' \
+  https://<your-app>.onrender.com/api/download
+
+# 音声のみ(MP3)
+curl -X POST -H "Content-Type: application/json" -H "x-api-password: YOUR_PASSWORD" \
+  -d '{"url":"https://www.youtube.com/watch?v=XXXX","audioOnly":true}' \
   https://<your-app>.onrender.com/api/download
 ```
 

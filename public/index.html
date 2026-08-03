@@ -126,7 +126,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { selectedHeight: null, pollTimer: null };
+const state = { selectedHeight: null, selectedMode: 'video', pollTimer: null };
 
 // パスワードは sessionStorage に保存（タブを閉じたら消える）
 $('password').value = sessionStorage.getItem('ytdl_pw') || '';
@@ -171,6 +171,7 @@ $('fetchBtn').addEventListener('click', async () => {
 function renderResult(data) {
   $('resultCard').style.display = 'block';
   state.selectedHeight = null;
+  state.selectedMode = 'video';
   $('downloadBtn').disabled = true;
 
   const info = $('videoInfo');
@@ -187,6 +188,7 @@ function renderResult(data) {
   data.formats.filter(f => f.hasVideo).forEach((f) => {
     const tr = document.createElement('tr');
     tr.dataset.height = f.height || '';
+    tr.dataset.mode = 'video';
     tr.innerHTML = `
       <td><input type="radio" name="fmt" ${false}></td>
       <td>${escapeHtml(f.resolution)}${f.needsMerge ? '<span class="badge merge">要結合</span>' : ''}</td>
@@ -194,17 +196,33 @@ function renderResult(data) {
       <td>${f.filesizeMB ? f.filesizeMB + ' MB' : '不明'}</td>
       <td class="badge">${escapeHtml(f.note || '')}</td>
     `;
-    tr.addEventListener('click', () => selectFormat(f.height));
+    tr.addEventListener('click', () => selectFormat(f.height, 'video'));
     tbody.appendChild(tr);
   });
+
+  // 音声のみ(MP3)の行を追加
+  const audioTr = document.createElement('tr');
+  audioTr.dataset.height = '';
+  audioTr.dataset.mode = 'audio';
+  audioTr.innerHTML = `
+    <td><input type="radio" name="fmt"></td>
+    <td>🎵 音声のみ</td>
+    <td>mp3</td>
+    <td>-</td>
+    <td class="badge">ベスト音質から変換</td>
+  `;
+  audioTr.addEventListener('click', () => selectFormat(null, 'audio'));
+  tbody.appendChild(audioTr);
 }
 
-function selectFormat(height) {
+function selectFormat(height, mode) {
   state.selectedHeight = height || null;
+  state.selectedMode = mode;
   $('downloadBtn').disabled = false;
   document.querySelectorAll('#formatList tr').forEach((tr) => {
     const trHeight = tr.dataset.height ? Number(tr.dataset.height) : null;
-    const isSelected = trHeight === (height || null);
+    const trMode = tr.dataset.mode;
+    const isSelected = trMode === mode && (mode === 'audio' || trHeight === (height || null));
     tr.classList.toggle('selected', isSelected);
     const radio = tr.querySelector('input[type=radio]');
     if (radio) radio.checked = isSelected;
@@ -218,10 +236,14 @@ $('downloadBtn').addEventListener('click', async () => {
   setStatus('ジョブを開始しています...');
 
   try {
+    const body = state.selectedMode === 'audio'
+      ? { url, audioOnly: true }
+      : { url, height: state.selectedHeight };
+
     const res = await fetch('/api/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ url, height: state.selectedHeight }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '開始に失敗しました');
@@ -251,7 +273,7 @@ function pollJob(jobId) {
         const fileUrl = `/api/download/${jobId}/file?password=${encodeURIComponent($('password').value)}`;
         const a = document.createElement('a');
         a.href = fileUrl;
-        a.download = data.fileName || 'video.mp4';
+        a.download = data.fileName || (state.selectedMode === 'audio' ? 'audio.mp3' : 'video.mp4');
         document.body.appendChild(a);
         a.click();
         a.remove();

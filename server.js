@@ -298,8 +298,11 @@ app.post('/api/cookies', requireAuth, express.text({ limit: '2mb', type: '*/*' }
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/download  body: { url, height, password }
+// POST /api/download  body: { url, height, audioOnly, password }
 // ダウンロードジョブを作成し、即座に jobId を返す（非同期処理）
+//
+// - audioOnly: true の場合、映像なしでMP3を抽出する（heightは無視される）
+// - それ以外は height（映像の高さ上限）を指定した映像+音声ダウンロード
 //
 // 注: 特定の format_id (itag) を直接指定すると、一覧取得時と実際のダウンロード時で
 // YouTube側が返すitagにズレが生じ "Requested format is not available" になることが
@@ -307,11 +310,11 @@ app.post('/api/cookies', requireAuth, express.text({ limit: '2mb', type: '*/*' }
 // セレクタ方式にして堅牢性を高めている。
 // ---------------------------------------------------------------------------
 app.post('/api/download', requireAuth, (req, res) => {
-  const { url, height } = req.body || {};
+  const { url, height, audioOnly } = req.body || {};
   if (!url || !isValidUrl(url)) {
     return res.status(400).json({ error: 'url が不正です' });
   }
-  if (height !== undefined && height !== null && (!Number.isFinite(Number(height)) || Number(height) <= 0)) {
+  if (!audioOnly && height !== undefined && height !== null && (!Number.isFinite(Number(height)) || Number(height) <= 0)) {
     return res.status(400).json({ error: 'height が不正です' });
   }
 
@@ -319,14 +322,14 @@ app.post('/api/download', requireAuth, (req, res) => {
   jobs.set(jobId, { status: 'pending', createdAt: Date.now() });
 
   // 非同期でバックグラウンド処理を開始（レスポンスは待たせない）
-  processDownloadJob(jobId, url, height ? Number(height) : null).catch((err) => {
+  processDownloadJob(jobId, url, height ? Number(height) : null, !!audioOnly).catch((err) => {
     console.error(`[job ${jobId}] unexpected error`, err);
   });
 
   res.json({ jobId });
 });
 
-async function processDownloadJob(jobId, url, height) {
+async function processDownloadJob(jobId, url, height, audioOnly) {
   const job = jobs.get(jobId);
   if (!job) return;
   job.status = 'processing';
@@ -335,26 +338,48 @@ async function processDownloadJob(jobId, url, height) {
   job.tempDir = tempDir;
 
   try {
-    // 高さ制約付きのベスト映像+ベスト音声を狙い、ダメなら段階的にフォールバックする
-    const h = height ? `[height<=${height}]` : '';
-    const formatArg = `bestvideo${h}+bestaudio/best${h}/best`;
-
     // タイトルはyt-dlpの出力テンプレートに任せ、実際に生成されたファイル名をそのまま使う
     const outputTemplate = path.join(tempDir, '%(title).100s [%(id)s].%(ext)s');
 
-    await runCommand('yt-dlp', [
-      ...cookieArgs(),
-      ...resilienceArgs(),
-      '-f', formatArg,
-      '--merge-output-format', 'mp4',   // 映像+音声が分かれている場合、ffmpegで結合してmp4化
-      '--remux-video', 'mp4',           // 既に結合済みでもコンテナをmp4に統一（再エンコードなし）
-      '--no-playlist',
-      '--no-warnings',
-      '-o', outputTemplate,
-      url,
-    ], { timeoutMs: 20 * 60 * 1000 });
+    let args;
+    let expectedExt;
 
-    const files = fs.readdirSync(tempDir).filter((f) => f.toLowerCase().endsWith('.mp4'));
+    if (audioOnly) {
+      // 音声のみ: ベスト音質を選び、ffmpegでMP3に変換する
+      args = [
+        ...cookieArgs(),
+        ...resilienceArgs(),
+        '-f', 'bestaudio/best',
+        '--extract-audio',
+        '--audio-format', 'mp3',
+        '--audio-quality', '0',   // 0=最高音質（VBR）
+        '--no-playlist',
+        '--no-warnings',
+        '-o', outputTemplate,
+        url,
+      ];
+      expectedExt = '.mp3';
+    } else {
+      // 高さ制約付きのベスト映像+ベスト音声を狙い、ダメなら段階的にフォールバックする
+      const h = height ? `[height<=${height}]` : '';
+      const formatArg = `bestvideo${h}+bestaudio/best${h}/best`;
+      args = [
+        ...cookieArgs(),
+        ...resilienceArgs(),
+        '-f', formatArg,
+        '--merge-output-format', 'mp4',   // 映像+音声が分かれている場合、ffmpegで結合してmp4化
+        '--remux-video', 'mp4',           // 既に結合済みでもコンテナをmp4に統一（再エンコードなし）
+        '--no-playlist',
+        '--no-warnings',
+        '-o', outputTemplate,
+        url,
+      ];
+      expectedExt = '.mp4';
+    }
+
+    await runCommand('yt-dlp', args, { timeoutMs: 20 * 60 * 1000 });
+
+    const files = fs.readdirSync(tempDir).filter((f) => f.toLowerCase().endsWith(expectedExt));
     if (files.length === 0) {
       throw new Error('出力ファイルが見つかりませんでした（未対応フォーマットの可能性があります）');
     }
