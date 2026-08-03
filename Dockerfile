@@ -16,6 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # yt-dlp-ejs: YouTubeのSABR配信化により必要になった署名/nチャレンジ解決用の追加コンポーネント
 RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp yt-dlp-ejs
 
+# Deno: yt-dlp-ejsの署名/nチャレンジ解決に使うJavaScriptランタイム。
+# ベースイメージのNode.js(20系)はyt-dlp-ejsの要件(Node 22.6+)を満たさず
+# "unsupported" 扱いになるため、yt-dlpが標準で最優先に使うDenoを別途入れる。
+RUN npm install -g deno
+
 WORKDIR /app
 
 # 依存関係を先にインストール（キャッシュを効かせるため）

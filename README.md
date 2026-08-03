@@ -234,9 +234,12 @@ cookies.txt を取り直して、上記A・Bのどちらかで更新してくだ
 簡易対策で十分なことが多いです）。
 
 ### パターンB: 署名/nチャレンジ解決の失敗
-YouTubeの署名解決にJavaScript実行が必要なケースがあり、実行環境にJSランタイムが
-無いと同様のエラーになります。ベースイメージのNode.jsを `--js-runtimes node` で
-使うようにし、`yt-dlp-ejs` パッケージも同梱しています。
+YouTubeの署名解決にJavaScript実行が必要なケースがあり、対応したJSランタイムが
+無いと同様のエラーになります。当初はベースイメージのNode.jsを使う想定でしたが、
+`yt-dlp-ejs` はNode 22.6未満を "unsupported" として扱うため、ベースイメージの
+Node.js（20系）では機能しませんでした。そのため、yt-dlpが標準で最優先に使う
+**Deno** を `npm install -g deno` でDockerfileに追加し、`--js-runtimes deno`
+で明示的に使うようにしています。
 
 ### 原因を実際に確認する（`/api/debug`）
 以下のエンドポイントで、実際にどんなフォーマットが（あるいは全く）取得できて

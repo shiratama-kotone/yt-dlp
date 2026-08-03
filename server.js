@@ -67,7 +67,7 @@ function cookieArgs() {
 // ---------------------------------------------------------------------------
 function resilienceArgs() {
   return [
-    '--js-runtimes', 'node',
+    '--js-runtimes', 'deno',
     '--remote-components', 'ejs:github',
     // PO Token(Proof of Origin)が無いとYouTubeが実フォーマットを隠し「画像のみ」しか
     // 返さなくなることがあり、これが "Requested format is not available" の主因になり得る。
