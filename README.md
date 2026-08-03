@@ -219,33 +219,44 @@ cookies.txt を取り直して、上記A・Bのどちらかで更新してくだ
 
 ---
 
-## 8. 「Requested format is not available」対策（YouTubeのSABR配信強制）
+## 8. 「Requested format is not available」対策
 
-2025年後半以降、YouTubeは「SABR」という新しい配信方式を段階的に強制するようになり、
-これに対応していないクライアントでは通常のフォーマット一覧が取得できず
-`WARNING: Only images are available for download` → `Requested format is not available`
-というエラーになることがあります。あわせて、YouTubeの署名/n challengeを解くために
-**JavaScriptランタイムでの解決処理**が必要なケースも増えています。
+原因はおおむね2パターンあります。
 
-これは yt-dlp と YouTube 側のいたちごっこであり、**サーバー側のコードの不具合ではなく、
-外部要因（YouTube側の仕様変更）による一時的な問題であることが多い**です。このサーバーでは
-以下の対策を入れています。
+### パターンA: PO Token（Proof of Origin）不足
+2025年後半以降、YouTubeは有効な PO Token が無いと実際の映像/音声フォーマットを隠し、
+「画像のみ」しか返さなくなることがあります（サムネイル的な静止画フォーマットだけが
+残り、映像・音声フォーマットがゼロになる）。この場合、どんな画質を選んでも
+`Requested format is not available` になります。このサーバーでは
+`--extractor-args youtube:formats=missing_pot` を付けて、PO Tokenが無くても
+取得できるフォーマットは強制的に一覧へ含めるようにしています（正規のPO Token
+プロバイダを別途動かすのが本来のより確実な対策ですが、個人利用ではこの
+簡易対策で十分なことが多いです）。
 
-- `yt-dlp-ejs`（署名/nチャレンジを解くための追加コンポーネント）を同梱
-- ベースイメージに元々含まれる **Node.js を JavaScript ランタイムとして利用**（`--js-runtimes node`）
-- 必要に応じて GitHub から最新の解決コンポーネントを取得（`--remote-components ejs:github`）
-- 複数の player_client（tv/web/mweb/web_safari）を順番に試す（`--extractor-args`）
-- ログイン cookie を使う（6章参照）
+### パターンB: 署名/nチャレンジ解決の失敗
+YouTubeの署名解決にJavaScript実行が必要なケースがあり、実行環境にJSランタイムが
+無いと同様のエラーになります。ベースイメージのNode.jsを `--js-runtimes node` で
+使うようにし、`yt-dlp-ejs` パッケージも同梱しています。
 
-**それでも直らない場合**は、Dockerfileの `yt-dlp` と `yt-dlp-ejs` のバージョンが古い
-（Renderのビルドキャッシュが古い）ことが多いです。Renderのダッシュボードで
-**Manual Deploy → Clear build cache & deploy** を実行し、キャッシュなしで
-再ビルドしてみてください（`-U` オプションにより毎回pipで最新版を取得しますが、
-Dockerレイヤーキャッシュが効いていると更新がスキップされることがあります）。
+### 原因を実際に確認する（`/api/debug`）
+以下のエンドポイントで、実際にどんなフォーマットが（あるいは全く）取得できて
+いないか、詳細ログ付きで確認できます。ダウンロードはせず情報取得のみです。
 
-それでも解消しない場合は、その時点のYouTube側の仕様変更にyt-dlp本体がまだ追随できて
-いない可能性があります。数日〜数週間で yt-dlp 側が更新されることが多いので、
-時間を置いて再度お試しください。
+```bash
+curl -H "x-api-password: YOUR_PASSWORD" \
+  "https://<your-app>.onrender.com/api/debug?url=https://www.youtube.com/watch?v=XXXX"
+```
+
+`stdout` に映像/音声フォーマットが1件も並んでいない、あるいは
+`WARNING: ... formats have been skipped as they are missing a url` 等が出ていれば
+PO Token不足（パターンA）の可能性が高く、`ERROR: Unable to extract ...` や
+JS実行系のエラーが出ていればパターンBの可能性があります。
+
+### それでも直らない場合
+Dockerfileの `yt-dlp` / `yt-dlp-ejs` のバージョンが古い（ビルドキャッシュが古い）
+ことが多いです。Renderのダッシュボードで **Manual Deploy → Clear build cache & deploy**
+を実行し、キャッシュなしで再ビルドしてみてください。それでも解消しない場合は、
+その時点のYouTube側の仕様変更にyt-dlp本体がまだ追随できていない可能性があります。
 
 ---
 

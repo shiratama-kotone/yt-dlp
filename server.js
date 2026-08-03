@@ -69,7 +69,10 @@ function resilienceArgs() {
   return [
     '--js-runtimes', 'node',
     '--remote-components', 'ejs:github',
-    '--extractor-args', 'youtube:player_client=tv,web,mweb,web_safari',
+    // PO Token(Proof of Origin)が無いとYouTubeが実フォーマットを隠し「画像のみ」しか
+    // 返さなくなることがあり、これが "Requested format is not available" の主因になり得る。
+    // PO Tokenが無くても取得できるフォーマットは強制的に含めさせる。
+    '--extractor-args', 'youtube:formats=missing_pot',
   ];
 }
 
@@ -152,7 +155,9 @@ function runCommand(cmd, args, { timeoutMs = 15 * 60 * 1000 } = {}) {
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        reject(new Error(stderr || `終了コード ${code}`));
+        // 原因調査しやすいよう stderr に加えて stdout の末尾も含める
+        const tailOut = stdout ? `\n--- stdout(tail) ---\n${stdout.slice(-1500)}` : '';
+        reject(new Error((stderr || `終了コード ${code}`) + tailOut));
       }
     });
   });
@@ -172,6 +177,34 @@ function isValidUrl(str) {
 // ---------------------------------------------------------------------------
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/debug?url=...
+// yt-dlp の --list-formats を詳細ログ付きで実行し、生の出力をそのまま返す。
+// 「Requested format is not available」等の原因調査用（実ダウンロードはしない）。
+// ---------------------------------------------------------------------------
+app.get('/api/debug', requireAuth, async (req, res) => {
+  const { url } = req.query;
+  if (!url || !isValidUrl(url)) {
+    return res.status(400).json({ error: 'url パラメータが不正です' });
+  }
+
+  try {
+    const result = await runCommand('yt-dlp', [
+      ...cookieArgs(),
+      ...resilienceArgs(),
+      '-v',
+      '--list-formats',
+      '--no-playlist',
+      url,
+    ], { timeoutMs: 90 * 1000 });
+    res.json({ ok: true, stdout: result.stdout, stderr: result.stderr });
+  } catch (err) {
+    // runCommand は失敗時 stderr(にstdoutを含まない) を message にして reject するため、
+    // ここでは失敗時の出力もそのまま返す（原因調査が目的なので500にはしない）
+    res.json({ ok: false, error: String(err.message || err) });
+  }
 });
 
 // ---------------------------------------------------------------------------
